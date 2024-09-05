@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using UnityEditor.Tilemaps;
 using UnityEngine;
 using UnityEngine.InputSystem;
 using UnityEngine.Tilemaps;
@@ -8,58 +9,69 @@ public class PlayerController : MonoBehaviour
 {
     private Rigidbody2D _rb;
     
-    public InputActionReference movementAction;
     public float moveSpeed = 5f;
+    public InputActionReference horizontalMovementAction;
+    public InputActionReference verticalMovementAction;
+
+    private Vector2 _contactPoint;
+    private Vector2 _cellCenter;
     private Vector2 _movement;
-    private bool _hitWallLastFrame = false;
-    private CircleCollider2D _collider;
+    private TileBase _tile;
     public Tilemap tilemap; 
+    
     private void Awake()
     {
-        _collider = GetComponent<CircleCollider2D>();
         _rb = GetComponent<Rigidbody2D>();
-    }
-
-    void Start()
-    {
     }
 
     private void Update()
     {
-       _movement = movementAction.action.ReadValue<Vector2>();
-       
-       ContactFilter2D contactFilter = new ContactFilter2D();
-       contactFilter.NoFilter();
-       List<RaycastHit2D> hits = new();
-       _collider.Cast(_movement, contactFilter, hits, 1);
-       
-       Debug.Log(hits.Count);
-       foreach (RaycastHit2D hit in hits)
-       { 
-           Debug.DrawLine(_rb.position, hit.point, Color.magenta,Time.deltaTime, false);
-           Vector3Int worldToCell = tilemap.WorldToCell(hit.point);
-           tilemap.GetCellCenterWorld(worldToCell);
+       _movement.x = horizontalMovementAction.action.ReadValue<float>();
+       _movement.y = verticalMovementAction.action.ReadValue<float>();
+
+       List<ContactPoint2D> contacts = new List<ContactPoint2D>();
+       _rb.GetContacts(contacts);
+       foreach (ContactPoint2D contact in contacts)
+       {
+           _contactPoint = contact.point;
+           _cellCenter = GetTileCenterFromContact(contact);
        }
+    }
+
+    private Vector2 GetTileCenterFromContact(ContactPoint2D contact)
+    {
+        Vector3Int cellPosition = tilemap.WorldToCell(contact.point + (-contact.normal * 0.5f));
+        return tilemap.GetCellCenterWorld(cellPosition);
     }
 
     private void OnDrawGizmos()
     {
-        if (_rb != null)
-        {
-            //Debug.DrawRay(_rb.position, _movement , Color.red, 0.1f, false);
-        }
+        Gizmos.color = Color.yellow;
+        Vector3 pos = Camera.main.ScreenToWorldPoint(Input.mousePosition);
+        pos.z = 0;
+        Vector3 tileCorner = GetTileFromWorldPosition(pos);
+        drawTileBounds(tileCorner);
+        Gizmos.color = Color.magenta;
+        Gizmos.DrawSphere(_contactPoint, 0.2f);
+        Gizmos.color = Color.cyan;
+        Gizmos.DrawSphere(_cellCenter, 0.2f);
+    }
+
+    private void drawTileBounds(Vector3 tileCorner)
+    {
+        Gizmos.color = Color.green;
+        Gizmos.DrawRay(tileCorner,new Vector3(tilemap.cellSize.x,0,0));
+        Gizmos.DrawRay(tileCorner,new Vector3(0,tilemap.cellSize.y,0));
+        Gizmos.DrawRay(tileCorner + tilemap.cellSize,new Vector3(-tilemap.cellSize.x,0,0));
+        Gizmos.DrawRay(tileCorner + tilemap.cellSize,new Vector3(0,-tilemap.cellSize.y,0));
+    }
+    private Vector3 GetTileFromWorldPosition(Vector2 worldPosition)
+    {
+        return tilemap.CellToWorld(tilemap.WorldToCell(worldPosition));  
     }
 
     private void FixedUpdate()
     {
-        if (_movement.x > 0)
-            _movement.x = 1;
-        else if (_movement.x < 0)
-            _movement.x = -1;
-        if (_movement.y > 0)
-            _movement.y = 1;
-        else if (_movement.y < 0)
-            _movement.y = -1;
         
         ContactPoint2D[] contacts = new ContactPoint2D[4];
         int result = Physics2D.GetContacts(_rb, contacts);
