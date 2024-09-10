@@ -8,7 +8,8 @@ using UnityEngine.Tilemaps;
 public class PlayerController : MonoBehaviour
 {
     private Rigidbody2D _rb;
-    
+
+    public float threshold = 0.1f;
     public float moveSpeed = 5f;
     public InputActionReference horizontalMovementAction;
     public InputActionReference verticalMovementAction;
@@ -17,8 +18,8 @@ public class PlayerController : MonoBehaviour
     private Vector2 _cellCenter;
     private Vector2 _movement;
     private TileBase _tile;
-    public Tilemap tilemap; 
-    
+    public Tilemap tilemap;
+
     private void Awake()
     {
         _rb = GetComponent<Rigidbody2D>();
@@ -26,16 +27,8 @@ public class PlayerController : MonoBehaviour
 
     private void Update()
     {
-       _movement.x = horizontalMovementAction.action.ReadValue<float>();
-       _movement.y = verticalMovementAction.action.ReadValue<float>();
-
-       List<ContactPoint2D> contacts = new List<ContactPoint2D>();
-       _rb.GetContacts(contacts);
-       foreach (ContactPoint2D contact in contacts)
-       {
-           _contactPoint = contact.point;
-           _cellCenter = GetTileCenterFromContact(contact);
-       }
+        _movement.x = horizontalMovementAction.action.ReadValue<float>();
+        _movement.y = verticalMovementAction.action.ReadValue<float>();
     }
 
     private Vector2 GetTileCenterFromContact(ContactPoint2D contact)
@@ -60,21 +53,72 @@ public class PlayerController : MonoBehaviour
     private void drawTileBounds(Vector3 tileCorner)
     {
         Gizmos.color = Color.green;
-        Gizmos.DrawRay(tileCorner,new Vector3(tilemap.cellSize.x,0,0));
-        Gizmos.DrawRay(tileCorner,new Vector3(0,tilemap.cellSize.y,0));
-        Gizmos.DrawRay(tileCorner + tilemap.cellSize,new Vector3(-tilemap.cellSize.x,0,0));
-        Gizmos.DrawRay(tileCorner + tilemap.cellSize,new Vector3(0,-tilemap.cellSize.y,0));
+        Gizmos.DrawRay(tileCorner, new Vector3(tilemap.cellSize.x, 0, 0));
+        Gizmos.DrawRay(tileCorner, new Vector3(0, tilemap.cellSize.y, 0));
+        Gizmos.DrawRay(tileCorner + tilemap.cellSize, new Vector3(-tilemap.cellSize.x, 0, 0));
+        Gizmos.DrawRay(tileCorner + tilemap.cellSize, new Vector3(0, -tilemap.cellSize.y, 0));
     }
+
     private Vector3 GetTileFromWorldPosition(Vector2 worldPosition)
     {
-        return tilemap.CellToWorld(tilemap.WorldToCell(worldPosition));  
+        return tilemap.CellToWorld(tilemap.WorldToCell(worldPosition));
+    }
+
+    private void AssistMovement()
+    {
+        if (_movement.magnitude > 1)
+            return;
+
+        List<ContactPoint2D> contacts = new List<ContactPoint2D>();
+        _rb.GetContacts(contacts);
+        foreach (ContactPoint2D contact in contacts)
+        {
+            Vector3Int tileCell = tilemap.WorldToCell(contact.point + (-contact.normal * 0.5f));
+            int xCell = tileCell.x;
+            int yCell = tileCell.y;
+            _cellCenter = tilemap.GetCellCenterWorld(tileCell);
+            bool isVerticalMovement = _movement.y != 0;
+            
+            float movementComponent = isVerticalMovement ? _movement.y : _movement.x;
+            ref float oppositeMovementComponent = ref isVerticalMovement ? ref _movement.x : ref _movement.y;
+
+            ref int oppositeTileCellComponent = ref isVerticalMovement ? ref xCell : ref yCell; 
+            
+            float contactNormalComponent = isVerticalMovement ? contact.normal.y : contact.normal.x;
+            float playerOppositeComponent = isVerticalMovement ? _rb.position.x : _rb.position.y;
+            float cellCenterOppositeComponent = isVerticalMovement ? _cellCenter.x : _cellCenter.y;
+
+            bool isBlockingPath = Math.Abs(movementComponent - contactNormalComponent) >= 1;
+            if (isBlockingPath)
+            {
+                float oppositeComponentDiff = cellCenterOppositeComponent - playerOppositeComponent;
+
+                if (oppositeComponentDiff > threshold)
+                {
+                    oppositeTileCellComponent--;
+                    if (!HasCollidableTile(new Vector3Int(xCell, yCell, 0)))
+                        oppositeMovementComponent = -1; // I need to modify the x or y component depending on isVerticalMovment
+                }
+                else if (oppositeComponentDiff < -threshold)
+                {
+                    oppositeTileCellComponent++;
+                    if (!HasCollidableTile(new Vector3Int(xCell, yCell, 0)))
+                        oppositeMovementComponent = 1; // I need to modify the x or y component depending on isVerticalMovment
+                }
+            }
+        }
     }
 
     private void FixedUpdate()
     {
+        AssistMovement(); 
         
-        ContactPoint2D[] contacts = new ContactPoint2D[4];
-        int result = Physics2D.GetContacts(_rb, contacts);
-        _rb.MovePosition(_rb.position + _movement * (moveSpeed * Time.fixedDeltaTime));
+        _rb.MovePosition(_rb.position + _movement.normalized * (moveSpeed * Time.fixedDeltaTime));
+    }
+
+    private bool HasCollidableTile(Vector3Int tileCell)
+    {
+        Collider2D collider = Physics2D.OverlapBox(tilemap.GetCellCenterWorld(tileCell), new Vector2(0.5f, 0.5f), 0);
+        return collider != null;
     }
 }
