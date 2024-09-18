@@ -31,12 +31,6 @@ public class PlayerController : MonoBehaviour
         _movement.y = verticalMovementAction.action.ReadValue<float>();
     }
 
-    private Vector2 GetTileCenterFromContact(ContactPoint2D contact)
-    {
-        Vector3Int cellPosition = tilemap.WorldToCell(contact.point + (-contact.normal * 0.5f));
-        return tilemap.GetCellCenterWorld(cellPosition);
-    }
-
     private void OnDrawGizmos()
     {
         Gizmos.color = Color.yellow;
@@ -66,8 +60,25 @@ public class PlayerController : MonoBehaviour
 
     private void AssistMovement()
     {
-        if (_movement.magnitude > 1)
+        if (_movement.magnitude == 0) 
             return;
+
+        if (_movement.magnitude > 1)
+        {
+            Vector3Int playerCell = tilemap.WorldToCell(_rb.position);
+            bool horizontalCollidable = HasCollidableTile(new Vector3Int(playerCell.x, playerCell.y + Mathf.CeilToInt(_movement.y), playerCell.z));
+            bool verticalCollidable = HasCollidableTile(new Vector3Int(playerCell.x + Mathf.CeilToInt(_movement.x), playerCell.y, playerCell.z));
+
+            if (horizontalCollidable && !verticalCollidable)
+            {
+                _movement.x = 0;
+            } else if (verticalCollidable && !horizontalCollidable)
+            {
+                _movement.y = 0;
+            }
+            
+            return;
+        }
 
         List<ContactPoint2D> contacts = new List<ContactPoint2D>();
         _rb.GetContacts(contacts);
@@ -81,7 +92,6 @@ public class PlayerController : MonoBehaviour
             
             float movementComponent = isVerticalMovement ? _movement.y : _movement.x;
             ref float oppositeMovementComponent = ref isVerticalMovement ? ref _movement.x : ref _movement.y;
-
             ref int oppositeTileCellComponent = ref isVerticalMovement ? ref xCell : ref yCell; 
             
             float contactNormalComponent = isVerticalMovement ? contact.normal.y : contact.normal.x;
@@ -89,21 +99,27 @@ public class PlayerController : MonoBehaviour
             float cellCenterOppositeComponent = isVerticalMovement ? _cellCenter.x : _cellCenter.y;
 
             bool isBlockingPath = Math.Abs(movementComponent - contactNormalComponent) >= 1;
-            if (isBlockingPath)
-            {
-                float oppositeComponentDiff = cellCenterOppositeComponent - playerOppositeComponent;
+            if (!isBlockingPath)
+                continue;
+            
+            float oppositeComponentDiff = cellCenterOppositeComponent - playerOppositeComponent;
 
-                if (oppositeComponentDiff > threshold)
+            if (oppositeComponentDiff > threshold)
+            {
+                oppositeTileCellComponent--;
+                if (!HasCollidableTile(new Vector3Int(xCell, yCell, 0)))
                 {
-                    oppositeTileCellComponent--;
-                    if (!HasCollidableTile(new Vector3Int(xCell, yCell, 0)))
-                        oppositeMovementComponent = -1; // I need to modify the x or y component depending on isVerticalMovment
+                    oppositeMovementComponent = -1;
+                    break; 
                 }
-                else if (oppositeComponentDiff < -threshold)
+            }
+            else if (oppositeComponentDiff < -threshold)
+            {
+                oppositeTileCellComponent++;
+                if (!HasCollidableTile(new Vector3Int(xCell, yCell, 0)))
                 {
-                    oppositeTileCellComponent++;
-                    if (!HasCollidableTile(new Vector3Int(xCell, yCell, 0)))
-                        oppositeMovementComponent = 1; // I need to modify the x or y component depending on isVerticalMovment
+                    oppositeMovementComponent = 1;
+                    break;
                 }
             }
         }
@@ -113,7 +129,7 @@ public class PlayerController : MonoBehaviour
     {
         AssistMovement(); 
         
-        _rb.MovePosition(_rb.position + _movement.normalized * (moveSpeed * Time.fixedDeltaTime));
+        _rb.MovePosition(_rb.position + _movement * (moveSpeed * Time.fixedDeltaTime));
     }
 
     private bool HasCollidableTile(Vector3Int tileCell)
